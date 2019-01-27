@@ -1,0 +1,80 @@
+Parameters:
+  BitbucketRepository:
+    Type: String
+
+Resources:
+  ECR:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: !Ref AWS::StackName
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub CodeBuildRole-${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        -
+          PolicyName: "CodeBuildAccessPolicies"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+              -
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+              - Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECR}
+                Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+  
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: no_artifacts
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/docker:18.09.0
+        EnvironmentVariables:
+        - Name: AWS_DEFAULT_REGION
+          Value: !Ref AWS::Region
+        - Name: AWS_ACCOUNT_ID
+          Value: !Ref AWS::AccountId
+        - Name: IMAGE_REPO_NAME
+          Value: !Ref ECR
+        - Name: IMAGE_TAG
+          Value: latest
+      Name: !Ref AWS::StackName
+      ServiceRole: !Ref CodeBuildRole
+      TimeoutInMinutes: 10
+      Source:
+        Type: BITBUCKET
+        Auth:
+          Type: OAUTH
+        Location: !Ref BitbucketRepository
+      Triggers:
+        Webhook: true
